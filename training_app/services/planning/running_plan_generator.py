@@ -107,7 +107,10 @@ def generate_half_marathon_plan_7w_3d(
     start_date: date,
     goal_race_date: date,
     params: PlanParams | None = None,
+    start_weekly_km: float | None = None,
+    current_long_run_km: float | None = None,
 ) -> TrainingPlan:
+
     """
     7-week Half Marathon plan, 3 days/week:
       Tue: intervals
@@ -132,9 +135,20 @@ def generate_half_marathon_plan_7w_3d(
 
     p = profile.paces
 
-    # --- Estimate a conservative starting weekly volume (km) ---
-    base = profile.baseline_race_distance_km
-    start_weekly_km = max(22.0, min(34.0, base * 4.5))  # 5k -> 22.5 km/wk
+    # --- Starting weekly volume (personalized if provided) ---
+    if start_weekly_km is None:
+        base = profile.baseline_race_distance_km
+        start_weekly_km = max(22.0, min(34.0, base * 4.5))  # heuristic fallback
+
+    if start_weekly_km <= 0:
+        raise ValueError("start_weekly_km must be > 0")
+
+    # --- Long run cap logic (optional personalization) ---
+    # If user provides their current longest run, we can gently guide the long run up.
+    # We keep the hard cap at params.long_cap_km regardless.
+    if current_long_run_km is not None and current_long_run_km <= 0:
+        raise ValueError("current_long_run_km must be > 0")
+
 
     # Build weekly volumes for weeks 0..5 (6 build weeks). Week 6 is race week.
     weekly_km: list[float] = []
@@ -189,6 +203,23 @@ def generate_half_marathon_plan_7w_3d(
         km_long = km_long_capped
         if overflow > 0:
             km_tempo += overflow
+
+        # Optional: shape long-run progression if current_long_run_km is given.
+        # We try to reach ~18–20 km by week 6 (index 5), without big jumps.
+        if current_long_run_km is not None:
+            # Target long-run progression linearly to ~18 km by week 5
+            target_peak = min(params.long_cap_km, 18.0)
+
+            # progress factor across build weeks 0..5
+            t = w / max(1, (params.weeks - 2))  # weeks-2 = 5 for 7-week plan
+            desired_long = current_long_run_km + t * (target_peak - current_long_run_km)
+
+            # Limit jump week-to-week to ~2 km (v0 safety)
+            km_long = min(km_long, desired_long + 2.0)
+
+            # Still respect cap
+            km_long = min(km_long, params.long_cap_km)
+
 
         interval_struct = _interval_structure_for_week(w, profile)
         tempo_struct = _tempo_structure_for_week(w, profile)
