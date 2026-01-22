@@ -12,3 +12,4 @@ class WorkoutType(str, Enum):
     INTERVALS = "intervals"
     RECOVERY = "recovery"
     REST = "rest"
+    RACE = "race"
